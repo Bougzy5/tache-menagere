@@ -1,0 +1,503 @@
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Gestionnaire Tâches</title> <link rel="manifest" href="manifest.json">
+        <meta name="theme-color" content="#4a90e2"/> <link rel="apple-touch-icon" href="icons/icon-192x192.png"> <script src="https://cdn.tailwindcss.com"></script>
+        <script>
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        fontFamily: {
+                            sans: ['Inter', 'sans-serif'],
+                        },
+                    }
+                }
+            }
+        </script>
+        <style>
+            /* Styles personnalisés si nécessaire */
+            body {
+                font-family: 'Inter', sans-serif;
+                background-color: #f3f4f6; /* Gris clair Tailwind */
+            }
+            .chore-item {
+                transition: background-color 0.3s ease;
+            }
+            /* Styles pour les différentes états des tâches */
+            .status-done { background-color: #d1fae5; } /* Vert clair */
+            .status-due { background-color: #fee2e2; } /* Rouge clair */
+            .status-pending { background-color: #ffedd5; } /* Orange clair */
+
+            /* Style pour le modal (fenêtre popup) */
+            .modal {
+                display: none; /* Caché par défaut */
+                position: fixed;
+                z-index: 1000;
+                left: 0;
+                top: 0;
+                width: 100%;
+                height: 100%;
+                overflow: auto;
+                background-color: rgba(0,0,0,0.4); /* Fond semi-transparent */
+            }
+            .modal-content {
+                background-color: #fefefe;
+                margin: 15% auto;
+                padding: 20px;
+                border: 1px solid #888;
+                width: 80%;
+                max-width: 500px;
+                border-radius: 0.5rem; /* Coins arrondis */
+            }
+            .close-button {
+                color: #aaa;
+                float: right;
+                font-size: 28px;
+                font-weight: bold;
+            }
+            .close-button:hover,
+            .close-button:focus {
+                color: black;
+                text-decoration: none;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    <body class="p-4 md:p-8">
+
+        <div class="max-w-4xl mx-auto bg-white p-6 rounded-lg shadow-md">
+            <h1 class="text-2xl font-bold mb-6 text-center text-gray-800">Suivi des Tâches Ménagères</h1>
+
+            <div class="mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                <h2 class="text-lg font-semibold mb-3 text-gray-700">Ajouter une nouvelle tâche</h2>
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <input type="text" id="new-chore-name" placeholder="Nom de la tâche" class="flex-grow p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <select id="new-chore-frequency" class="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="1">Journalière (1 jour)</option>
+                        <option value="3">Bi-hebdomadaire (3 jours)</option>
+                        <option value="7">Hebdomadaire (7 jours)</option>
+                        <option value="15">Bi-mensuelle (15 jours)</option>
+                        <option value="30">Mensuelle (30 jours)</option>
+                        <option value="90">Trimestrielle (90 jours)</option>
+                        <option value="180">Semestrielle (180 jours)</option>
+                        <option value="365">Annuelle (365 jours)</option>
+                    </select>
+                    <button id="add-chore-button" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md transition duration-150 ease-in-out flex items-center justify-center gap-2">
+                        <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/plus-circle.svg" alt="" class="h-5 w-5 inline-block"/> Ajouter
+                    </button>
+                </div>
+            </div>
+
+            <div id="chore-list" class="space-y-4">
+                <p class="text-center text-gray-500 initial-loading">Chargement des tâches...</p>
+            </div>
+        </div>
+
+        <div id="delete-confirm-modal" class="modal">
+            <div class="modal-content">
+                <span class="close-button" onclick="closeModal('delete-confirm-modal')">&times;</span>
+                <h2 class="text-lg font-semibold mb-4">Confirmer la suppression</h2>
+                <p id="delete-confirm-message" class="mb-4">Êtes-vous sûr de vouloir supprimer cette tâche ?</p>
+                <div class="flex justify-end gap-4">
+                    <button id="cancel-delete-button" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-md" onclick="closeModal('delete-confirm-modal')">Annuler</button>
+                    <button id="confirm-delete-button" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-md">Supprimer</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // --- CONSTANTES ET VARIABLES GLOBALES ---
+            const choreListElement = document.getElementById('chore-list');
+            const addChoreButton = document.getElementById('add-chore-button');
+            const newChoreNameInput = document.getElementById('new-chore-name');
+            const newChoreFrequencySelect = document.getElementById('new-chore-frequency');
+            const deleteConfirmModal = document.getElementById('delete-confirm-modal');
+            const confirmDeleteButton = document.getElementById('confirm-delete-button');
+            const cancelDeleteButton = document.getElementById('cancel-delete-button');
+            const deleteConfirmMessage = document.getElementById('delete-confirm-message');
+            const initialLoadingMessage = document.querySelector('.initial-loading');
+
+
+            let chores = []; // Tableau pour stocker les tâches
+            let choreToDeleteId = null; // Pour stocker l'ID de la tâche à supprimer
+
+            // Fréquences textuelles pour l'affichage
+            const frequencyMap = {
+                1: "Journalière", 3: "Bi-hebdomadaire", 7: "Hebdomadaire",
+                15: "Bi-mensuelle", 30: "Mensuelle", 90: "Trimestrielle",
+                180: "Semestrielle", 365: "Annuelle"
+            };
+
+            // --- FONCTIONS UTILITAIRES ---
+
+            // Sauvegarde les tâches dans le localStorage
+            function saveChores() {
+                try {
+                    localStorage.setItem('chores', JSON.stringify(chores));
+                    console.log("Tâches sauvegardées.");
+                } catch (e) {
+                    console.error("Erreur lors de la sauvegarde des tâches:", e);
+                    // Gérer l'erreur potentielle (par exemple, quota dépassé)
+                }
+            }
+
+            // Charge les tâches depuis le localStorage
+            function loadChores() {
+                try {
+                    const storedChores = localStorage.getItem('chores');
+                    if (storedChores) {
+                        chores = JSON.parse(storedChores);
+                        console.log("Tâches chargées.");
+                    } else {
+                        console.log("Aucune tâche sauvegardée trouvée, initialisation.");
+                        // Initialiser avec les tâches par défaut si aucune donnée n'est sauvegardée
+                        chores = [
+                            { id: Date.now() + 1, name: "Vaisselle", frequencyDays: 1, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 2, name: "Machine à laver", frequencyDays: 1, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 3, name: "Lave-vaisselle", frequencyDays: 1, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 4, name: "Rangement maison", frequencyDays: 1, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 5, name: "Aspirateur", frequencyDays: 3, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 6, name: "Nettoyage des meubles", frequencyDays: 3, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 7, name: "Serpillière", frequencyDays: 7, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 8, name: "Nettoyage salle de bain", frequencyDays: 7, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 9, name: "Nettoyage évier", frequencyDays: 7, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 10, name: "Nettoyage des fenêtres", frequencyDays: 15, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 11, name: "Changer draps des lits", frequencyDays: 30, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                            { id: Date.now() + 12, name: "Gros nettoyage maison", frequencyDays: 90, lastDoneTimestamp: null, nextDueDateTimestamp: null },
+                        ];
+                        // Initialiser les dates d'échéance pour les tâches par défaut
+                        const now = Date.now();
+                        chores.forEach(chore => {
+                            chore.lastDoneTimestamp = now; // Considérer comme fait maintenant pour le premier calcul
+                            chore.nextDueDateTimestamp = calculateNextDueDate(now, chore.frequencyDays);
+                        });
+                        saveChores(); // Sauvegarder l'état initial
+                    }
+                } catch (e) {
+                    console.error("Erreur lors du chargement des tâches:", e);
+                    chores = []; // Revenir à un état vide en cas d'erreur de parsing
+                    // Afficher un message d'erreur à l'utilisateur pourrait être utile ici
+                }
+            }
+
+            // Calcule la prochaine date d'échéance
+            function calculateNextDueDate(lastDoneTimestamp, frequencyDays) {
+                if (!lastDoneTimestamp) return null;
+                const nextDueDate = new Date(lastDoneTimestamp);
+                // Ajoute le nombre de jours correct
+                nextDueDate.setDate(nextDueDate.getDate() + frequencyDays);
+                // Met l'heure à minuit pour comparer les jours entiers
+                nextDueDate.setHours(0, 0, 0, 0);
+                return nextDueDate.getTime();
+            }
+
+            // Formate le temps restant en une chaîne lisible
+            function formatTimeRemaining(timeDiffMillis) {
+                 if (isNaN(timeDiffMillis) || timeDiffMillis === Infinity || timeDiffMillis === -Infinity) {
+                    return "Date invalide";
+                 }
+
+                const now = new Date();
+                const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                const dueDate = new Date(todayStart + timeDiffMillis); // Date d'échéance basée sur la différence
+                const dueDateStart = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate()).getTime();
+
+
+                if (dueDateStart < todayStart) {
+                    const overdueDays = Math.ceil(Math.abs(timeDiffMillis) / (1000 * 60 * 60 * 24));
+                     return `En retard de ${overdueDays} jour${overdueDays > 1 ? 's' : ''}`;
+                } else if (dueDateStart === todayStart) {
+                    return "Aujourd'hui";
+                } else {
+                    // Calcul des jours restants (en jours entiers)
+                    const daysRemaining = Math.ceil(timeDiffMillis / (1000 * 60 * 60 * 24));
+                     return `Dans ${daysRemaining} jour${daysRemaining > 1 ? 's' : ''}`;
+                    /* // Version plus détaillée (si nécessaire)
+                    const days = Math.floor(timeDiffMillis / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((timeDiffMillis % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const minutes = Math.floor((timeDiffMillis % (1000 * 60 * 60)) / (1000 * 60));
+
+                    let result = "Restant: ";
+                    if (days > 0) result += `${days}j `;
+                    if (hours > 0) result += `${hours}h `;
+                    if (minutes > 0 && days === 0) result += `${minutes}m`;
+                    if (days === 0 && hours === 0 && minutes === 0) result = "Moins d'une minute";
+                    return result.trim();
+                    */
+                }
+            }
+
+
+            // Détermine la classe CSS de statut en fonction de la date d'échéance
+            function getStatusClass(nextDueDateTimestamp) {
+                if (!nextDueDateTimestamp) return 'status-done'; // Considérer comme fait si jamais fait
+
+                const now = new Date();
+                // Met l'heure actuelle à minuit pour comparer uniquement les dates
+                const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+                // La date d'échéance est déjà à minuit grâce à calculateNextDueDate
+                const dueDateStart = nextDueDateTimestamp;
+
+                if (dueDateStart < todayStart) {
+                    return 'status-due'; // Rouge (en retard)
+                } else if (dueDateStart === todayStart) {
+                    return 'status-pending'; // Orange (aujourd'hui)
+                } else {
+                    return 'status-done'; // Vert (pas encore dû)
+                }
+            }
+
+            // Ouvre un modal
+            function openModal(modalId) {
+                const modal = document.getElementById(modalId);
+                if (modal) {
+                    modal.style.display = 'block';
+                }
+            }
+
+            // Ferme un modal
+            function closeModal(modalId) {
+                const modal = document.getElementById(modalId);
+                if (modal) {
+                    modal.style.display = 'none';
+                }
+            }
+
+            // --- FONCTION PRINCIPALE DE RENDU ---
+
+            // Affiche les tâches dans la liste HTML
+            function renderChores() {
+                console.log("Rendu des tâches...");
+                choreListElement.innerHTML = ''; // Vide la liste actuelle
+                 if (initialLoadingMessage) {
+                     initialLoadingMessage.style.display = 'none'; // Cacher le message de chargement
+                 }
+                const now = Date.now();
+
+                // Trier les tâches : d'abord celles qui sont dues/en retard, puis par date d'échéance la plus proche
+                chores.sort((a, b) => {
+                    const statusA = getStatusClass(a.nextDueDateTimestamp);
+                    const statusB = getStatusClass(b.nextDueDateTimestamp);
+
+                    const priorityA = (statusA === 'status-due' || statusA === 'status-pending') ? 0 : 1;
+                    const priorityB = (statusB === 'status-due' || statusB === 'status-pending') ? 0 : 1;
+
+                    if (priorityA !== priorityB) {
+                        return priorityA - priorityB;
+                    }
+
+                    const dateA = a.nextDueDateTimestamp || Infinity;
+                    const dateB = b.nextDueDateTimestamp || Infinity;
+                    return dateA - dateB;
+                });
+
+
+                if (chores.length === 0 && !initialLoadingMessage) { // Vérifier si le message de chargement n'est plus là
+                     choreListElement.innerHTML = '<p class="text-center text-gray-500">Aucune tâche pour le moment. Ajoutez-en une !</p>';
+                     return;
+                }
+
+                chores.forEach(chore => {
+                    const choreItem = document.createElement('div');
+                    choreItem.classList.add('chore-item', 'p-4', 'rounded-lg', 'shadow-sm', 'flex', 'flex-col', 'sm:flex-row', 'items-start', 'sm:items-center', 'justify-between', 'gap-4');
+                    choreItem.setAttribute('data-chore-id', chore.id); // Ajouter un attribut pour l'identification
+
+                    const statusClass = getStatusClass(chore.nextDueDateTimestamp);
+                    choreItem.classList.add(statusClass);
+
+                    const timeDiff = chore.nextDueDateTimestamp ? chore.nextDueDateTimestamp - Date.now() : Infinity; // Recalculer la différence pour l'affichage initial
+                    const timeRemainingStr = chore.nextDueDateTimestamp ? formatTimeRemaining(timeDiff) : "Prêt quand vous l'êtes";
+
+
+                    const frequencyText = frequencyMap[chore.frequencyDays] || `${chore.frequencyDays} jours`;
+
+                    choreItem.innerHTML = `
+                        <div class="flex-grow">
+                            <span class="font-semibold text-lg text-gray-800">${chore.name}</span>
+                            <span class="block text-sm text-gray-600">Fréquence: ${frequencyText}</span>
+                            <span class="block text-sm text-gray-700 timer" data-due-date="${chore.nextDueDateTimestamp || ''}">
+                               ${timeRemainingStr}
+                            </span>
+                        </div>
+                        <div class="flex gap-2 flex-shrink-0">
+                            <button class="mark-done-button bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-3 rounded-md transition duration-150 ease-in-out flex items-center gap-1" data-id="${chore.id}">
+                                <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/check.svg" alt="" class="h-4 w-4 inline-block"/> Fait
+                            </button>
+                            <button class="delete-button bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded-md transition duration-150 ease-in-out flex items-center gap-1" data-id="${chore.id}" data-name="${chore.name}">
+                                <img src="https://cdn.jsdelivr.net/npm/lucide-static@latest/icons/trash-2.svg" alt="" class="h-4 w-4 inline-block"/> Suppr.
+                            </button>
+                        </div>
+                    `;
+
+                    choreListElement.appendChild(choreItem);
+                });
+
+                // Ajouter les écouteurs d'événements après avoir créé les boutons
+                addEventListenersToButtons();
+            }
+
+            // --- GESTIONNAIRES D'ÉVÉNEMENTS ---
+
+            // Ajoute les écouteurs aux boutons "Fait" et "Supprimer"
+            function addEventListenersToButtons() {
+                document.querySelectorAll('.mark-done-button').forEach(button => {
+                    // Supprimer l'ancien écouteur s'il existe pour éviter les doublons
+                    button.replaceWith(button.cloneNode(true));
+                });
+                 document.querySelectorAll('.delete-button').forEach(button => {
+                     // Supprimer l'ancien écouteur s'il existe
+                     button.replaceWith(button.cloneNode(true));
+                 });
+
+                 // Ré-attacher les nouveaux écouteurs
+                 document.querySelectorAll('.mark-done-button').forEach(button => {
+                    button.addEventListener('click', handleMarkDone);
+                 });
+                 document.querySelectorAll('.delete-button').forEach(button => {
+                    button.addEventListener('click', handleDeleteClick);
+                 });
+            }
+
+            // Gère le clic sur le bouton "Fait"
+            function handleMarkDone(event) {
+                const choreId = parseInt(event.currentTarget.dataset.id);
+                const choreIndex = chores.findIndex(c => c.id === choreId);
+                if (choreIndex > -1) {
+                    const now = Date.now();
+                    chores[choreIndex].lastDoneTimestamp = now;
+                    chores[choreIndex].nextDueDateTimestamp = calculateNextDueDate(now, chores[choreIndex].frequencyDays);
+                    console.log(`Tâche ${choreId} marquée comme faite. Prochaine échéance: ${new Date(chores[choreIndex].nextDueDateTimestamp)}`);
+                    saveChores();
+                    renderChores(); // Re-render pour mettre à jour l'affichage
+                } else {
+                    console.warn(`Tâche avec ID ${choreId} non trouvée pour marquer comme faite.`);
+                }
+            }
+
+             // Gère le clic sur le bouton "Supprimer" (ouvre le modal)
+            function handleDeleteClick(event) {
+                choreToDeleteId = parseInt(event.currentTarget.dataset.id);
+                const choreName = event.currentTarget.dataset.name;
+                deleteConfirmMessage.textContent = `Êtes-vous sûr de vouloir supprimer la tâche "${choreName}" ?`;
+                openModal('delete-confirm-modal');
+            }
+
+            // Gère la confirmation de suppression
+            confirmDeleteButton.addEventListener('click', () => {
+                if (choreToDeleteId !== null) {
+                    console.log(`Suppression de la tâche ${choreToDeleteId}`);
+                    chores = chores.filter(chore => chore.id !== choreToDeleteId);
+                    saveChores();
+                    renderChores();
+                    closeModal('delete-confirm-modal');
+                    choreToDeleteId = null; // Réinitialiser
+                }
+            });
+
+
+            // Gère l'ajout d'une nouvelle tâche
+            addChoreButton.addEventListener('click', () => {
+                const name = newChoreNameInput.value.trim();
+                const frequencyDays = parseInt(newChoreFrequencySelect.value);
+
+                if (name && !isNaN(frequencyDays)) {
+                    const now = Date.now();
+                    const newChore = {
+                        id: Date.now(), // Utilise le timestamp comme ID unique simple
+                        name: name,
+                        frequencyDays: frequencyDays,
+                        lastDoneTimestamp: now, // Considérer comme fait maintenant
+                        nextDueDateTimestamp: calculateNextDueDate(now, frequencyDays)
+                    };
+                    chores.push(newChore);
+                    console.log(`Nouvelle tâche ajoutée: ${name}, Fréquence: ${frequencyDays} jours`);
+                    saveChores();
+                    renderChores(); // Met à jour l'affichage
+
+                    // Réinitialiser les champs
+                    newChoreNameInput.value = '';
+                    newChoreFrequencySelect.value = '1'; // Remettre à la valeur par défaut
+                } else {
+                    alert("Veuillez entrer un nom de tâche valide.");
+                }
+            });
+
+            // --- MISE À JOUR PÉRIODIQUE ---
+
+            // Met à jour les comptes à rebours et les statuts toutes les minutes
+            function updateTimersAndStatus() {
+                const now = Date.now();
+                let needsRender = false; // Indicateur pour savoir si un re-rendu est nécessaire (changement de statut/ordre)
+
+                 // Sélectionne tous les éléments de tâche actuellement affichés
+                document.querySelectorAll('.chore-item[data-chore-id]').forEach(itemElement => {
+                    const choreId = parseInt(itemElement.dataset.choreId);
+                    const chore = chores.find(c => c.id === choreId); // Trouve la tâche correspondante dans les données
+
+                    if (!chore || !chore.nextDueDateTimestamp) return; // Si tâche non trouvée ou pas de date, ignorer
+
+                    const timerElement = itemElement.querySelector('.timer');
+                    const dueDateTimestamp = chore.nextDueDateTimestamp; // Utiliser la date depuis les données
+
+                    const timeDiff = dueDateTimestamp - now;
+                    const newTimeRemainingStr = formatTimeRemaining(timeDiff);
+
+                    // Met à jour le texte du timer s'il a changé
+                    if (timerElement && timerElement.textContent.trim() !== newTimeRemainingStr.trim()) {
+                         timerElement.textContent = newTimeRemainingStr;
+                    }
+
+                    // Vérifie si le statut (couleur/classe) a changé
+                    const currentStatusClass = Array.from(itemElement.classList).find(cls => cls.startsWith('status-'));
+                    const newStatusClass = getStatusClass(dueDateTimestamp);
+
+                    if (currentStatusClass !== newStatusClass) {
+                        // Si le statut change, il faut re-rendre pour appliquer la bonne classe et potentiellement le bon ordre
+                        needsRender = true;
+                    }
+                });
+
+                 if (needsRender) {
+                     console.log("Re-rendu déclenché par changement de statut.");
+                     renderChores(); // Re-rendre toute la liste pour garantir l'ordre et les classes
+                 }
+            }
+
+
+            // --- INITIALISATION ---
+            document.addEventListener('DOMContentLoaded', () => {
+                loadChores(); // Charger les données sauvegardées (ou initiales)
+                renderChores(); // Afficher les tâches initiales
+                setInterval(updateTimersAndStatus, 60000); // Mettre à jour toutes les 60 secondes
+
+                 // Enregistrement du Service Worker pour la PWA
+                 if ('serviceWorker' in navigator) {
+                    window.addEventListener('load', () => {
+                        navigator.serviceWorker.register('/service-worker.js') // Assurez-vous que le chemin est correct
+                            .then(registration => {
+                                console.log('ServiceWorker enregistré avec succès:', registration.scope);
+                            })
+                            .catch(error => {
+                                console.log('Échec de l\'enregistrement du ServiceWorker:', error);
+                            });
+                    });
+                 } else {
+                     console.log('Service Worker non supporté par ce navigateur.');
+                 }
+            });
+
+
+            // Fermer le modal si on clique en dehors de son contenu
+            window.onclick = function(event) {
+                if (event.target == deleteConfirmModal) {
+                    closeModal('delete-confirm-modal');
+                }
+            }
+
+        </script>
+
+    </body>
+    </html>

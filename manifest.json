@@ -1,0 +1,25 @@
+ ```json
+    // manifest.json
+    // Ce fichier décrit votre application au navigateur/système d'exploitation.
+    {
+      "name": "Gestionnaire Tâches Ménagères", // Nom complet de l'application
+      "short_name": "Tâches", // Nom court (affiché sous l'icône)
+      "description": "Une application simple pour suivre les tâches ménagères.", // Description
+      "start_url": "/", // Page de démarrage de l'application (racine du site)
+      "display": "standalone", // Mode d'affichage (comme une app native, sans barre d'URL)
+      "background_color": "#ffffff", // Couleur de fond de l'écran de démarrage
+      "theme_color": "#4a90e2", // Couleur de la barre d'état/thème
+      "icons": [
+        {
+          "src": "icons/icon-192x192.png", // Chemin vers votre icône 192x192px
+          "sizes": "192x192",
+          "type": "image/png",
+          "purpose": "any maskable" // "maskable" aide l'icône à s'adapter aux formes d'icônes Android
+        },
+        {
+          "src": "icons/icon-512x512.png", // Chemin vers votre icône 512x512px
+          "sizes": "512x512",
+          "type": "image/png"
+        }
+      ]
+    }
